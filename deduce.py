@@ -18,7 +18,11 @@ def token_str(token):
     return str
 
 def deduce_file(filename, error_expected):
-    file = open(filename, 'r', encoding="utf-8")
+    try:
+        file = open(filename, 'r', encoding="utf-8")
+    except OSError:
+        print("Couldn't find file:", filename, "to deduce")
+        return -1 # File not found
     p = file.read()
     set_filename(filename)
     try:
@@ -34,30 +38,30 @@ def deduce_file(filename, error_expected):
         check_deduce(ast)
         if error_expected:
             print('an error was expected in', filename, "but it was not caught")
-            exit(-1)
+            return 1 # Failed
         else:
             print_theorems(filename, ast)
             print(filename + ' is valid')
 
     except exceptions.UnexpectedToken as t:
         if error_expected:
-            exit(0)
+            return 0 # Passed
         else:
             print(get_filename() + ":" + str(t.token.line) + "." + str(t.token.column) \
                   + "-" + str(t.token.end_line) + "." + str(t.token.end_column) + ": " \
                   + "error in parsing, unexpected token: " + token_str(t.token))
             #print('expected one of ' + ', '.join([str(e) for e in t.expected]))
-            exit(-1)
+            return 1 # Failed
         
     except Exception as e:
         if error_expected:
-            exit(0)
+            return 0 # Passed
         else:
             print(str(e))
             # Use the following when debugging internal exceptions -Jeremy
             # print(traceback.format_exc())
             # for production, exit
-            exit(1)
+            return 1 # Failed
             # during development, reraise
             # raise e
 
@@ -82,22 +86,35 @@ if __name__ == "__main__":
         elif argument == '--dir':
             add_import_directory(sys.argv[i+1])
             already_processed_next = True
-        else:
+        elif argument not in filenames:
             filenames.append(argument)
+        else:
+            print("Got file", argument, "twice, only processing it once")
     
     if len(filenames) == 0:
         print("Couldn't find a file to deduce!")
         exit(1)
 
-    if len(filenames) > 1:
-        print("TODO: support deducing multiple files")
-        exit(1)
-    
     # Start deducing
     sys.setrecursionlimit(5000) # We can probably use a loop for some tail recursive functions
 
     set_deduce_directory(os.path.dirname(sys.argv[0]))
     init_parser()
 
+    passed = []
+    failed = []
+
     for filename in filenames:
-        deduce_file(filename, error_expected)
+        retcode = deduce_file(filename, error_expected)
+        if retcode == 0:
+            passed.append(filename)
+        elif retcode == 1:
+            failed.append(filename)
+
+    if len(failed) == 0:
+        if len(passed) >= 1 and len(passed) > 0:
+            print("All files are valid")
+    else:
+        if len(passed) > 1:
+            print("Valid: ", ", ".join(passed))
+        print("Invalid: ", ", ".join(failed))
