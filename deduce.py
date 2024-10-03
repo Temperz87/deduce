@@ -24,6 +24,8 @@ def deduce_file(filename, error_expected):
         print("Couldn't find file:", filename, "to deduce")
         return -1 # File not found
     p = file.read()
+    file.close()
+
     set_filename(filename)
     try:
         if get_verbose():
