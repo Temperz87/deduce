@@ -1868,8 +1868,6 @@ def check_pattern(pattern, typ, env, cases_present):
 def check_formula(frm, env):
   return type_check_term(frm, BoolType(frm.location), env, None, [])
 
-modules = set()
-
 def add_overload(loc, old_var_ty, new_ty, name):
     match old_var_ty:
       case OverloadType(loc2, old_overloads):
@@ -2148,6 +2146,7 @@ def check_proofs(stmt, env):
       error(stmt.location, "unrecognized statement:\n" + str(stmt))
       
 def uniquify_deduce(ast):
+  clear_uniquify_cache()
   env = {}
   env['≠'] = '≠'
   env['='] = '='
@@ -2161,6 +2160,7 @@ def check_deduce(ast):
   ast2 = []
   if get_verbose():
       print('--------- Processing Declarations ------------------------')
+  imported_modules.clear()
   for s in ast:
     new_s, env = process_declaration(s, env)
     ast2.append(new_s)

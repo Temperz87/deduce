@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass
 from lark.tree import Meta
 from typing import Any, Tuple, List
@@ -2103,6 +2104,12 @@ class Define(Statement):
     pass
 
 uniquified_modules = {}
+module_asts = {}
+need_to_reuniquify = []
+
+def clear_uniquify_cache():
+  for modules in uniquified_modules.keys():
+    need_to_reuniquify.append(modules)
   
 @dataclass
 class Assert(Statement):
@@ -2141,14 +2148,24 @@ def find_file(loc, name):
 class Import(Statement):
   name: str
   ast: AST = None
-
   def __str__(self):
     return 'import ' + self.name
   
   def uniquify(self, env):
     global uniquified_modules
+
     if self.name in uniquified_modules.keys():
-      self.ast = uniquified_modules[self.name]
+      if self.name in need_to_reuniquify:
+        self.ast = copy.deepcopy(module_asts[self.name])
+        uniquified_modules[self.name] = self.ast
+        for s in self.ast:
+          s.uniquify(env)
+        for s in self.ast:
+          s.uniquify_body(env)
+        need_to_reuniquify.remove(self.name)
+      else:
+        self.ast = uniquified_modules[self.name]
+
       return env
     else:
       filename = find_file(self.location, self.name)
@@ -2160,7 +2177,9 @@ class Import(Statement):
       set_filename(filename)
       self.ast = parse(src, trace=False)
       uniquified_modules[self.name] = self.ast
+      module_asts[self.name] = copy.deepcopy(self.ast)
       set_filename(old_filename)
+
       for s in self.ast:
         s.uniquify(env)
       for s in self.ast:
