@@ -2104,7 +2104,7 @@ class Define(Statement):
     pass
 
 uniquified_modules = {}
-module_asts = {}
+module_envs = {}
 need_to_reuniquify = []
 
 def clear_uniquify_cache():
@@ -2156,15 +2156,10 @@ class Import(Statement):
 
     if self.name in uniquified_modules.keys():
       if self.name in need_to_reuniquify:
-        self.ast = copy.deepcopy(module_asts[self.name])
-        uniquified_modules[self.name] = self.ast
-        for s in self.ast:
-          s.uniquify(env)
-        for s in self.ast:
-          s.uniquify_body(env)
+        print("Importing", module_envs[self.name])
+        env.update(module_envs[self.name])
         need_to_reuniquify.remove(self.name)
-      else:
-        self.ast = uniquified_modules[self.name]
+      self.ast = uniquified_modules[self.name]
 
       return env
     else:
@@ -2177,13 +2172,15 @@ class Import(Statement):
       set_filename(filename)
       self.ast = parse(src, trace=False)
       uniquified_modules[self.name] = self.ast
-      module_asts[self.name] = copy.deepcopy(self.ast)
       set_filename(old_filename)
 
       for s in self.ast:
         s.uniquify(env)
       for s in self.ast:
         s.uniquify_body(env)
+      
+      module_envs[self.name] = env
+      env.update(env)
       return env
   
   def uniquify_body(self, env):
