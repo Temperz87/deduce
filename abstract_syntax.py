@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from lark.tree import Meta
 from typing import Any, Tuple, List
 from error import error, set_verbose, get_verbose
@@ -477,8 +477,12 @@ class TAnnote(Term):
   
 @dataclass
 class Var(Term):
+  # name is established upon creation in the parser, 
+  # then updated during type checking
   name: str
-  resolved_names: list[str]  # filled in during uniquify, list because of overloading
+
+  # filled in during uniquify, list because of overloading
+  resolved_names: list[str] = field(default_factory=list)
 
   def free_vars(self):
     return set([self.name])
@@ -584,7 +588,7 @@ class Lambda(Term):
   def __eq__(self, other):
       if not isinstance(other, Lambda):
           return False
-      ren = {x: Var(self.location, t2, y, []) \
+      ren = {x: Var(self.location, t2, y) \
              for ((x,t1),(y,t2)) in zip(self.vars, other.vars) }
       new_body = self.body.substitute(ren)
       return new_body == other.body
@@ -758,7 +762,9 @@ class Call(Term):
         + " " + op_arg_str(self, self.args[1])
     elif isNat(self) and not get_verbose():
       return str(natToInt(self))
-    elif isNodeList(self) and not get_verbose():
+    elif isDeduceInt(self):
+      return deduceIntToInt(self)
+    elif isNodeList(self):
       return '[' + nodeListToList(self)[:-2] + ']'
     elif isEmptySet(self) and not get_verbose():
       return '∅'
@@ -2380,6 +2386,35 @@ def natToInt(t):
     case Call(loc, tyof1, Var(loc2, tyof2, name, rs), [arg], infix) \
       if base_name(name) == 'suc':
       return 1 + natToInt(arg)
+
+def mkPos(loc, arg):
+  return Call(loc, None, Var(loc, None, 'pos', []), [arg], False)
+
+def mkNeg(loc, arg):
+  return Call(loc, None, Var(loc, None, 'negsuc', []), [arg], False)
+
+def intToDeduceInt(loc, n, sign):
+  if sign == 'PLUS':
+    return mkPos(loc, intToNat(loc, n))
+  else:
+    return mkNeg(loc, intToNat(loc, n - 1))
+
+def isDeduceInt(t):
+  match t:
+    case Call(loc, tyof1, Var(loc2, tyof2, name), [arg], infix) if base_name(name) == 'pos':
+      return isNat(arg)
+    case Call(loc, tyof1, Var(loc2, tyof2, name), [arg], infix) if base_name(name) == 'negsuc':
+      return isNat(arg)
+    case _:
+      return False
+  
+
+def deduceIntToInt(t):
+  match t:
+    case Call(loc, tyof1, Var(loc2, tyof2, name), [arg], infix) if base_name(name) == 'pos':
+      return '+' + str(natToInt(arg))
+    case Call(loc, tyof1, Var(loc2, tyof2, name), [arg], infix) if base_name(name) == 'negsuc':
+      return '-' + str(1 + natToInt(arg))
 
 def is_constructor(constr_name, env):
   for (name,binding) in env.dict.items():
