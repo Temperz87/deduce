@@ -4,6 +4,7 @@ from abstract_syntax import add_import_directory, print_theorems, get_recursive_
 import sys
 import os
 import parser
+import chart_parser
 import rec_desc_parser
 #from parser import parse, set_filename, get_filename, set_deduce_directory, init_parser
 #from rec_desc_parser import parse, set_filename, get_filename, set_deduce_directory, init_parser
@@ -18,7 +19,6 @@ def deduce_file(filename, error_expected):
     module_name = Path(filename).stem
 
     try:
-    
         if module_name in get_uniquified_modules().keys():
             ast = get_uniquified_modules()[module_name]
         else:
@@ -30,8 +30,9 @@ def deduce_file(filename, error_expected):
             if get_verbose():
                 print("about to parse")
             if get_recursive_descent():
-                ast = rec_desc_parser.parse(program_text, trace=get_verbose(),
-                                            error_expected=error_expected)
+                # TODO: Not ALWAYS use the chart parser for this
+                ast = chart_parser.parse(program_text, trace=get_verbose(),
+                                   error_expected=error_expected)
             else:
                 ast = parser.parse(program_text, trace=get_verbose(),
                                    error_expected=error_expected)
@@ -90,6 +91,7 @@ if __name__ == "__main__":
     
         argument = sys.argv[i]
 
+        # TODO: Check for chart parser arg
         if argument == '--error':
             error_expected = True
         elif argument == '--verbose':
@@ -119,6 +121,7 @@ if __name__ == "__main__":
     rec_desc_parser.set_deduce_directory(os.path.dirname(sys.argv[0]))
     parser.init_parser()
     rec_desc_parser.init_parser()
+    chart_parser.init_parser()
 
     for deducable in deducables:
         if os.path.isfile(deducable):
