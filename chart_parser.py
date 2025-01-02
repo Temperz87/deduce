@@ -10,22 +10,43 @@ from rec_desc_parser import meta_from_tokens
 
 modules = []
 
+@dataclass
+class ProductionRule:
+    name: str
+    meta: Meta
+    expected: list # expected list of rules
+
+    def applicable(self, chart : list) -> bool:
+        return False # mfw no abstract classes
+
+    def __str__(self):
+        return self.name + ': ' + str(self.meta)
+    
+# For when we're looking for like sequences of characters
+# e.g. in "if" bool "then" bool "else" bool "if" and "then" would be literals 
+@dataclass
+class LiteralRule(ProductionRule):
+    literal: str
+
+    def applicable(self, chart : list) -> bool:
+        return chart[0] == self.literal 
+
+    def __str__(self):
+        return self.literal + ': ' + str(self.meta)
 
 @dataclass
-class GrammarRule:
-    meta: Meta
-    precedence: int # -1 if N/A
+class TypeRule(ProductionRule):
+    rules: list[ProductionRule]
 
-    def __str__(self):
-        return "STMT"
-
-class TypeRule:
-    name: str
-    rules: List
-
+    def applicable(self, chart : list) -> bool:
+        for rule in self.rules:
+            if rule.applicable(chart):
+                return True
+        return False
+    
     def __str__(self):
         return self.name + "[" + [str(x) for x in self.rules]
-    
+
 @dataclass
 class Item:
     p: TypeRule # partial parse tree
@@ -79,7 +100,7 @@ def collect_union(tokens, i):
     i += 1
 
     if tokens[i].value != '{':
-        print("Expected the \'{'\ token but got ", repr(tokens[i]), "instead")
+        print("Expected the \'{\' token but got ", repr(tokens[i]), "instead")
 
     union_representations = []
 
@@ -94,6 +115,9 @@ def collect_union(tokens, i):
 
     # add_grammar('type', )
     exit(0)
+
+def add_builtin_rules():
+    add_grammar('union', )
 
 
 
@@ -172,7 +196,7 @@ def parse(program_text, trace = False, error_expected = False):
     newitems = []
     for i in range(len(tokens)):
         myTrees = []
-        # print("On", tokens[i])
+        print("On", tokens[i])
 
         if not tokens[i].type in grammar_rules:
             continue
