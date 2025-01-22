@@ -74,7 +74,7 @@ ident: IDENT              -> ident
     | "operator" "/="      -> ident_not_equal
 
 ?term_hi: INT                                      -> int
-    | "+" term_hi                                  -> pos_int
+    | "+" INT                                      -> pos_int
     | "-" term_hi                                  -> neg_int
     | "true"                                       -> true_literal
     | "false"                                      -> false_literal
@@ -83,14 +83,16 @@ ident: IDENT              -> ident
     | "not" term_hi                                -> logical_not
     | IDENT                                        -> term_var
     | "@" term_hi "<" type_list ">"                -> term_inst
+    | "array" "(" term ")"                         -> make_array
     | term_hi "(" term_list ")"                    -> call
+    | term_hi "[" term "]"                         -> array_get
     | "λ" var_list "{" term "}"                    -> lambda
     | "fun" var_list "{" term "}"                  -> lambda
     | "generic" ident_list "{" term "}"            -> generic
     | "switch" term "{" switch_list "}"            -> switch
-    | "all" var_list "." term                      -> all_formula
-    | "<" ident_list ">" term                       -> alltype_formula
-    | "some" var_list "." term                     -> some_formula
+    | "all" type_annot_list "." term               -> all_formula
+    | "<" ident_list ">" term                      -> alltype_formula
+    | "some" type_annot_list "." term              -> some_formula
     | "define" IDENT "=" term ";" term             -> define_term
     | "?"                                          -> hole_term
     | "─"                                          -> omitted_term
@@ -106,6 +108,10 @@ ident: IDENT              -> ident
 ?ident_list:                                       -> empty
     | ident                                        -> single
     | ident "," ident_list                         -> push
+
+?type_annot_list:                                  -> empty_binding
+    | ident ":" type                               -> single_binding
+    | ident ":" type "," type_annot_list           -> push_binding
 
 ?var_list:                                         -> empty_binding
     | ident ":" type                               -> single_binding
@@ -184,7 +190,7 @@ ident: IDENT              -> ident
     | "sorry"                                            -> sorry_proof
     | "{" proof "}"
     
-?proof_stmt: "arbitrary" var_list                   -> all_intro
+?proof_stmt: "arbitrary" type_annot_list                   -> all_intro
     | "assume" IDENT                                -> imp_intro
     | "assume" IDENT ":" term                       -> imp_intro_explicit
     | "assume" ":" term                             -> imp_intro_anon
@@ -226,6 +232,7 @@ ident: IDENT              -> ident
  | "bool"         -> bool_type
  | "type"         -> type_type
  | "(" type ")"   -> paren
+ | "[" type "]"   -> array_type
 
 ?type_list:                                      -> empty
     | type                                       -> single
@@ -249,11 +256,11 @@ ident: IDENT              -> ident
     | "[" "]"                                    -> pattern_empty_list
     | IDENT "(" ident_list ")"                   -> pattern_apply
 
-?pattern_list:                                      -> empty
+?param_list:                                      -> empty
     | pattern                                       -> single
     | pattern "," ident_list                        -> push
     
-?fun_case: ident "(" pattern_list ")" "=" term      -> fun_case
+?fun_case: ident "(" param_list ")" "=" term      -> fun_case
 
 ?fun_case_list: fun_case                               -> single
     | fun_case fun_case_list                           -> push

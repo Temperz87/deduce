@@ -1,6 +1,6 @@
-from error import set_verbose, get_verbose
+from error import set_verbose, get_verbose, set_unique_names, get_unique_names
 from proof_checker import check_deduce, uniquify_deduce
-from abstract_syntax import add_import_directory, print_theorems, get_recursive_descent, set_recursive_descent, get_uniquified_modules, add_uniquified_module
+from abstract_syntax import init_import_directories, add_import_directory, print_theorems, get_recursive_descent, set_recursive_descent, get_uniquified_modules, add_uniquified_module, VerboseLevel
 import sys
 import os
 import parser
@@ -37,7 +37,8 @@ def deduce_file(filename, error_expected):
                 ast = parser.parse(program_text, trace=get_verbose(),
                                    error_expected=error_expected)
             if get_verbose():
-                print("abstract syntax tree:\n"+'\n'.join([str(s) for s in ast])+"\n\n")
+                print("abstract syntax tree:\n" \
+                      +'\n'.join([str(s) for s in ast])+"\n\n")
                 print("starting uniquify:\n" + '\n'.join([str(d) for d in ast]))
             uniquify_deduce(ast)
             if get_verbose():
@@ -74,16 +75,20 @@ def deduce_directory(directory, recursive_directories):
             if file[-3:] == '.pf':
                 deduce_file(directory + file, error_expected)
         elif recursive_directories and os.path.isdir(directory + file):
-            deduce_directory(directory + file)
+            deduce_directory(directory + file, recursive_directories)
 
 
 if __name__ == "__main__":
     # Check command line arguments
+
+    stdlib_dir = os.path.join(os.path.dirname(sys.argv[0]), 'lib/')
+    add_stdlib = True
     deducables = []
     error_expected = False
     recursive_directories = False
-
     already_processed_next = False
+    init_import_directories()
+
     for i in range(1, len(sys.argv)):
         if already_processed_next:
             already_processed_next = False
@@ -94,9 +99,17 @@ if __name__ == "__main__":
         # TODO: Check for chart parser arg
         if argument == '--error':
             error_expected = True
+        elif argument == '--unique-names':
+            set_unique_names(True)
         elif argument == '--verbose':
-            set_verbose(True)
-        elif argument == '--dir':
+            if i + 1 < len(sys.argv) and sys.argv[i+1] == 'full':
+              set_verbose(VerboseLevel.FULL)
+              set_unique_names(True)
+            else:
+              set_verbose(VerboseLevel.CURR_ONLY)
+        elif argument == '--dir' and i + 1 < len(sys.argv):
+            if sys.argv[i + 1] == stdlib_dir:
+                add_stdlib = False
             add_import_directory(sys.argv[i+1])
             already_processed_next = True
         elif argument == '--recursive-descent':
@@ -107,16 +120,27 @@ if __name__ == "__main__":
             traceback_flag = True
         elif argument == '--recursive-directories' or argument == '-r':
             recursive_directories = True
+        elif argument == '--no-stdlib':
+            add_stdlib = False
         else:
             deducables.append(argument)
+    
+    if add_stdlib:
+        add_import_directory(stdlib_dir)
     
     if len(deducables) == 0:
         print("Couldn't find a file to deduce!")
         exit(1)
 
-    # Start deducing
-    sys.setrecursionlimit(5000) # We can probably use a loop for some tail recursive functions
+    sys.setrecursionlimit(10000)
+    # We can probably use a loop for some tail recursive functions
+    # And even the non-tail recursive functions can be turned into a
+    # loop by using an explicit stack.  But these alternatives would
+    # hurt the readability of the code and increase the maintenance
+    # burden. So when you hit the recursion limit, just bump the number
+    # higher.
 
+    # Start deducing
     parser.set_deduce_directory(os.path.dirname(sys.argv[0]))
     rec_desc_parser.set_deduce_directory(os.path.dirname(sys.argv[0]))
     parser.init_parser()

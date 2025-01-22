@@ -722,7 +722,8 @@ end
 conclusion ::= "evaluate"
 ```
 
-UNDER CONSTRUCTION
+The `evaluate` proof method simplies the goal formula by applying all
+definitions. It succeeds if the formula is simplified to `true`.
 
 ## Evaluate-In (Proof)
 
@@ -730,7 +731,9 @@ UNDER CONSTRUCTION
 conclusion ::= "evaluate" "in" proof
 ```
 
-UNDER CONSTRUCTION
+The `evaluate`-`in` proof method simplies the formula of the given
+proof by applying all definitions, producing a proof of the simplified
+formula.
 
 ## Extensionality
 
@@ -803,8 +806,7 @@ The output is `12`.
 ## Function (Statement)
 
 ```
-statement ::= "function" identifier type_params_opt "(" type_list ")" "->" type "{" fun_case_list "}"
-fun_case_list ::= fun_case | fun_case fun_case_list
+statement ::= "function" identifier type_params_opt "(" type_list ")" "->" type "{" fun_case* "}"
 fun_case ::= identifier "(" pattern_list ")" "=" term
 ```
 
@@ -1007,10 +1009,10 @@ See the entry for [Biconditional](#biconditional-if-and-only-if).
 A formula `if P then Q` is true when both `P` and `Q` are true and it
 is true when `P` is false.
 
-To prove a conditional formula, use `assume`. (See the entry for Assume.)
+To prove a conditional formula, use `assume`. (See the entry for [Assume](#assume).)
 
 To use a given that is a conditional formula, use `apply`-`to`.
-(See the entry for Apply-To.)
+(See the entry for [Apply-To](#apply-to-proof-modus-ponens).)
 
 ## If Then Else (Term)
 
@@ -1067,6 +1069,8 @@ assert 1 ∈ S and 2 ∈ S and 3 ∈ S and not (4 ∈ S)
 
 ```
 conclusion ::= "induction" type ind_case*
+ind_case ::= "case" pattern "{" proof "}"
+           | "case" pattern "assume" assumption_list "{" proof "}"
 ```
 
 A proof of the form
@@ -1460,26 +1464,22 @@ A term, formula, or a proof may be surrounded in parentheses.
 ## Pattern
 
 ```
-pattern ::= identifier
-pattern ::= "0"
-pattern ::= "true"
-pattern ::= "false"
-pattern ::= identifier "(" identifier_list ")"
+pattern ::= identifier | "0" | "true" | "false" | identifier "(" identifier_list ")"
 ```
 
 This syntax is used in [Switch (Term)](#switch-term), [Switch (Proof)](#switch-proof),
 and [Function (Statement)](#function-statement) via [Pattern List](#pattern-list).
 
 
-## Pattern List
+## Parameter List
 
 ```
-pattern_list ::=
-pattern_list ::= pattern
-pattern_list ::= pattern "," ident_list
+param_list ::= ε | pattern | pattern "," identifier_list
 ```
 
-A pattern list is a comma-separated sequence of zero or more patterns.
+A parameter list begins with a pattern (for the first function
+parameter) and then continues with a comma-separated sequence of zero
+or more identifiers (for the rest of the function parameters).
 
 ## Period (Proof of True)
 
@@ -1529,7 +1529,7 @@ with a [Conclusion](#conclusion-proof) (not a proof statement).
 * [Have](#have-proof-statement)
 * [Injective](#injective-proof)
 * [Obtain](#obtain-exists-elimination)
-* [Suffices](#suffices-proof-statment)
+* [Suffices](#suffices-proof-statement)
 * [Suppose](#suppose)
 
 ## Print (Statement)
@@ -1726,10 +1726,10 @@ theorem switch_proof_example: all x:Nat. x = 0 or 0 < x
 proof
   arbitrary x:Nat
   switch x {
-    case zero {
+    case 0 assume xz: x = 0 {
       conclude true or 0 < 0 by .
     }
-    case suc(x') {
+    case suc(x') assume xs: x = suc(x') {
       have z_l_sx: 0 < suc(x')
           by definition {operator <, operator ≤, operator ≤}
       conclude suc(x') = 0 or 0 < suc(x') by z_l_sx
@@ -1912,11 +1912,39 @@ proof
 end
 ```
 
+## Type
+
+```
+type ::= "bool"                                        // type of a Boolean
+       | identifier                                    // type of a union
+       | identifier "<" type_list ">"                  // type of a generic union
+       | "fn" type_params_opt type_list "->" type      // type of a function 
+       | "(" type ")"
+```
+
+## Type List
+
+```
+type_list ::= ε | type | type "," type_list
+```
+
+A type list is a comma-separated list of zero or more types.
+
+
+## Type Parameters
+
+```
+type_params_opt ::= ε | "<" identifier_list ">"
+```
+
+Specifies the type parameters of a generic union or generic function.
+
 
 ## Union (Statement)
 
 ```
-statement ::= "union" identifier type_params_opt "{" constructor_list "}"
+statement ::= "union" identifier type_params_opt "{" constructor* "}"
+constructor ::= identifier | identifier "(" type_list ")"
 ```
 
 The `union` statement defines a new type whose values are created by
@@ -1958,7 +1986,7 @@ contains the items that occur in either set.
 
 Example:
 
-```{.deduce^#union_example}
+```{.deduce^#set_union_example}
 define C' = single(1) ∪ single(2)
 define D' = single(2) ∪ single(3)
 assert 1 ∈ C' ∪ D'
@@ -2036,5 +2064,6 @@ import Maps
 <<suffices_example>>
 <<true_example>>
 <<union_example>>
+<<set_union_example>>
 ```
 -->

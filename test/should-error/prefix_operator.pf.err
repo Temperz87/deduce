@@ -1,0 +1,8 @@
+./test/should-error/prefix_operator.pf:4.3-4.4: incomplete proof
+Goal:
+	not false
+Advice:
+	Prove this if-then formula with:
+		assume label: false
+	followed by a proof of:
+		false

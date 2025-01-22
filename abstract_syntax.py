@@ -1,13 +1,13 @@
 from dataclasses import dataclass, field
 from lark.tree import Meta
 from typing import Any, Tuple, List
-from error import error, set_verbose, get_verbose
+from error import error, set_verbose, get_verbose, get_unique_names, VerboseLevel
 from pathlib import Path
 import os
 
 infix_precedence = {'+': 6, '-': 6, '*': 7, '/': 7, '%': 7,
                     '=': 1, '<': 1, '≤': 1, '≥': 1, '>': 1, 'and': 2, 'or': 3,
-                    '++': 6, '⨄': 6}
+                    '++': 6, '⨄': 6, '∈':1, '∪':6, '∩':6, '⊆': 1}
 prefix_precedence = {'-': 5, 'not': 4}
 
 def copy_dict(d):
@@ -26,15 +26,25 @@ def base_name(name):
     ls = name.split('.')
     return ls[0]
 
-import_directories = ["."]
+import_directories = set()
+
+def init_import_directories():
+  import_directories.add(".")
+  lib_config_path = Path(os.path.expanduser("~/.config/deduce/libraries"))
+  if lib_config_path.exists() and lib_config_path.is_file():
+    with open(lib_config_path, 'r') as lib_config_file:
+      for line in lib_config_file:
+        import_directories.add(line.strip())
   
 def get_import_directories():
   global import_directories
+  if(get_verbose()):
+    print("import directories: ", import_directories)
   return import_directories
 
 def add_import_directory(dir):
   global import_directories
-  import_directories.append(dir)
+  import_directories.add(dir)
 
 
 recursive_descent = True
@@ -236,6 +246,35 @@ class FunctionType(Type):
                         [ty.reduce(env) for ty in self.param_types],
                         self.return_type.reduce(env))
     
+@dataclass
+class ArrayType(Type):
+  elt_type: Type
+  
+  def copy(self):
+    return ArrayType(self.location, self.elt_type.copy())
+
+  def __str__(self):
+    return '[' + str(self.elt_type) + ']'
+
+  def __eq__(self, other):
+    match other:
+      case ArrayType(loc, elt_type):
+        return self.elt_type == elt_type
+      case _:
+        return False
+
+  def free_vars(self):
+    return self.elt_type.free_vars()
+
+  def substitute(self, sub):
+    return ArrayType(self.location, self.elt_type.substitute(sub))
+
+  def uniquify(self, env):
+    self.elt_type.uniquify(env)
+
+  def reduce(self, env):
+    return ArrayType(self.location, self.elt_type.reduce(env))
+      
 @dataclass
 class TypeInst(Type):
   typ: Type
@@ -499,18 +538,27 @@ class Var(Term):
   
   def __str__(self):
       if isinstance(self.resolved_names, str):
-        error(self.location, 'resolved_names is a string but should be a list: ' \
+        error(self.location,
+              'resolved_names is a string but should be a list: ' \
               + self.resolved_names)
       
-      if base_name(self.name) == 'zero' and not get_verbose():
+      if base_name(self.name) == 'zero' and not get_unique_names() and not get_verbose():
         return '0'
-      elif base_name(self.name) == 'empty' and not get_verbose():
+      elif base_name(self.name) == 'empty' and not get_unique_names() and not get_verbose():
           return '[]'
       elif get_verbose():
         return self.name + '{' + ','.join(self.resolved_names) + '}'
+      elif get_unique_names():
+        return self.name
       else:
-        return base_name(self.name)
+        if is_operator(self):
+          return 'operator ' + base_name(self.name)
+        else:
+          return base_name(self.name)
 
+  def operator_str(self):
+    return base_name(self.name)
+        
   def reduce(self, env):
       if get_reduce_all() or (self in get_reduce_only()):
         res = env.get_value_of_term_var(self)
@@ -519,7 +567,7 @@ class Var(Term):
             print('\t var ' + self.name + ' ===> ' + str(res))
           return res.reduce(env)
         else:
-            return self
+          return self
       else:
         return self
   
@@ -534,10 +582,18 @@ class Var(Term):
   def uniquify(self, env):
     if self.name not in env.keys():
       if get_verbose():
-        keys = '\nenvironment: ' + ', '.join(env.keys())
+        env_str = '\nenvironment: ' + ', '.join(env.keys())
       else:
-        keys = ''
-      error(self.location, "undefined variable `" + self.name + "`\t(uniquify)" + keys)
+        env_str = ''
+
+      import_advice = ''
+
+      if self.name == "suc" or self.name == "zero":
+        import_advice = "\n\tAdd `import Nat` to supply a definition."
+      elif self.name == "empty" or self.name == "node":
+        import_advice = "\n\tAdd `import List` to supply a definition."
+
+      error(self.location, 'undefined variable: ' + self.name + import_advice + '' + env_str)
     self.resolved_names = env[self.name]
     
 @dataclass
@@ -635,12 +691,14 @@ def is_match(pattern, arg, subst):
         
       case PatternCons(loc1, constr, params):
         match arg:
-          case Call(loc2, cty, rator, args, infix):
+          case Call(loc2, cty, rator, args):
             match rator:
               case Var(loc3, ty3, name, rs):
                 if constr == Var(loc3, ty3, name, rs) and len(params) == len(args):
                     for (k,v) in zip(params, args):
                         subst[k] = v
+                        if isinstance(v, TermInst):
+                          v.inferred = False
                     ret = True
                 else:
                     ret = False
@@ -648,6 +706,8 @@ def is_match(pattern, arg, subst):
                 if constr == Var(loc3, ty3, name, rs) and len(params) == len(args):
                     for (k,v) in zip(params, args):
                         subst[k] = v
+                        if isinstance(v, TermInst):
+                          v.inferred = False
                     ret = True
                 else:
                     ret = False
@@ -720,10 +780,16 @@ def operator_name(trm):
       return operator_name(subject)
     case _:
       raise Exception('operator_name, unexpected term ' + str(trm))
-    
+
+def is_infix_operator(trm):
+  return is_operator(trm) and operator_name(trm) in infix_precedence.keys()
+
+def is_prefix_operator(trm):
+  return is_operator(trm) and operator_name(trm) in prefix_precedence.keys()
+
 def precedence(trm):
   match trm:
-    case Call(loc1, tyof, rator, args, infix) if is_operator(rator):
+    case Call(loc1, tyof, rator, args) if is_operator(rator):
       op_name = operator_name(rator)
       if len(args) == 2:
         return infix_precedence.get(op_name, None)
@@ -744,27 +810,27 @@ def op_arg_str(trm, arg):
 class Call(Term):
   rator: Term
   args: list[Term]
-  infix: bool
 
   def copy(self):
     ret = Call(self.location, self.typeof,
                 self.rator.copy(),
-                [arg.copy() for arg in self.args],
-                self.infix)
+                [arg.copy() for arg in self.args])
     if hasattr(self, 'type_args'):
       ret.type_args = self.type_args
     return ret
-  
+
   def __str__(self):
-    if self.infix:
-      return op_arg_str(self, self.args[0]) + " " + str(self.rator) \
+    if is_infix_operator(self.rator) and len(self.args) == 2:
+      return op_arg_str(self, self.args[0]) + " " + operator_name(self.rator) \
         + " " + op_arg_str(self, self.args[1])
+    elif is_prefix_operator(self.rator) and len(self.args) == 1:
+      return operator_name(self.rator) + " " + op_arg_str(self, self.args[0])
     elif isNat(self) and not get_verbose():
       return str(natToInt(self))
     elif isDeduceInt(self):
       return deduceIntToInt(self)
     elif isNodeList(self):
-      return '[' + nodeListToList(self)[:-2] + ']'
+      return '[' + nodeListToString(self)[:-2] + ']'
     elif isEmptySet(self) and not get_verbose():
       return '∅'
     else:
@@ -796,9 +862,12 @@ class Call(Term):
         elif constructor_conflict(args[0], args[1], env):
           ret = Bool(loc, BoolType(loc), False)
         else:
-          ret = Call(self.location, self.typeof, fun, args, self.infix)
+          ret = Call(self.location, self.typeof, fun, args)
       case Lambda(loc, ty, vars, body):
         subst = {k: v for ((k,t),v) in zip(vars, args)}
+        for (k,v) in subst.items():
+          if isinstance(v, TermInst):
+            v.inferred = False
         body_env = env
         new_body = body.substitute(subst)
         old_defs = get_reduce_only()
@@ -818,6 +887,9 @@ class Call(Term):
                   subst[x] = ty
                 for (k,v) in zip(fun_case.parameters, rest_args):
                   subst[k] = v
+                for (k,v) in subst.items():
+                  if isinstance(v, TermInst):
+                    v.inferred = False
                 new_fun_case_body = fun_case.body.substitute(subst)
                 old_defs = get_reduce_only()
                 reduce_defs = [x for x in old_defs]
@@ -836,7 +908,7 @@ class Call(Term):
                 return result
             else:
               pass
-        ret = Call(self.location, self.typeof, fun, args, self.infix)
+        ret = Call(self.location, self.typeof, fun, args)
       
       case RecFun(loc, name, [], params, returns, cases):
         if get_verbose():
@@ -849,6 +921,9 @@ class Call(Term):
                 body_env = env
                 for (k,v) in zip(fun_case.parameters, rest_args):
                   subst[k] = v
+                for (k,v) in subst.items():
+                  if isinstance(v, TermInst):
+                    v.inferred = False
                 new_fun_case_body = fun_case.body.substitute(subst)
                 old_defs = get_reduce_only()
                 reduce_defs = [x for x in old_defs]
@@ -867,14 +942,14 @@ class Call(Term):
                 return result
             else:
               pass
-        ret = Call(self.location, self.typeof, fun, args, self.infix)
+        ret = Call(self.location, self.typeof, fun, args)
 
       case Generic(loc2, tyof, typarams, body):
         error(self.location, 'in reduction, call to generic\n\t' + str(self))
       case _:
         if get_verbose():
           print('not reducing call because neutral function: ' + str(fun))
-        ret = Call(self.location, self.typeof, fun, args, self.infix)
+        ret = Call(self.location, self.typeof, fun, args)
         if hasattr(self, 'type_args'):
           ret.type_args = self.type_args
     if get_verbose():
@@ -883,8 +958,7 @@ class Call(Term):
 
   def substitute(self, sub):
     ret = Call(self.location, self.typeof, self.rator.substitute(sub),
-                [arg.substitute(sub) for arg in self.args],
-                self.infix)
+                [arg.substitute(sub) for arg in self.args])
     if hasattr(self, 'type_args'):
       ret.type_args = self.type_args
     return ret
@@ -1044,7 +1118,107 @@ class TermInst(Term):
     for ty in self.type_args:
       ty.uniquify(env)
       
+@dataclass
+class Array(Term):
+  elements: List[Term]
   
+  def __eq__(self, other):
+    if isinstance(other, Array):
+      return all([elt == other_elt for (elt, other_elt) in zip(self.elements,
+                                                               other.elements)])
+    else:
+      return False
+  
+  def copy(self):
+    return Array(self.location, [elt.copy() for elt in self.elements])
+  
+  def __str__(self):
+    return 'array(' + ', '.join([str(elt) for elt in self.elements]) + ')'
+
+  def reduce(self, env):
+    return Array(self.location, self.typeof,
+                 [elt.reduce(env) for elt in self.elements])
+    
+  def substitute(self, sub):
+    return Array(self.location, self.typeof,
+                 [elt.substitute(sub) for elt in self.elements])
+                    
+  def uniquify(self, env):
+    for elt in self.elements:
+      elt.uniquify(env)
+  
+@dataclass
+class MakeArray(Term):
+  subject: Term
+
+  def __eq__(self, other):
+    if isinstance(other, MakeArray):
+      return self.subject == other.subject
+    else:
+      return False
+  
+  def copy(self):
+    return MakeArray(self.location, self.typeof,
+                     self.subject.copy())
+  
+  def __str__(self):
+    return 'array(' + str(self.subject) + ')'
+
+  def reduce(self, env):
+    subject_red = self.subject.reduce(env)
+    if isNodeList(subject_red):
+      elements = nodeListToList(subject_red)
+      return Array(self.location, self.typeof, elements)
+    else:
+      return MakeArray(self.location, self.typeof, self.subject.reduce(env))
+    
+  def substitute(self, sub):
+    return MakeArray(self.location, self.typeof,
+                    self.subject.substitute(sub))
+
+  def uniquify(self, env):
+    self.subject.uniquify(env)
+
+@dataclass
+class ArrayGet(Term):
+  subject: Term
+  position: Term
+
+  def __eq__(self, other):
+    if isinstance(other, ArrayGet):
+      return self.subject == other.subject \
+        and self.position == other.position
+    else:
+      return False
+  
+  def copy(self):
+    return ArrayGet(self.location, self.typeof,
+                    self.subject.copy(), self.position.copy())
+  
+  def __str__(self):
+    return str(self.subject) + '[' + str(self.position) + ']'
+
+  def reduce(self, env):
+    subject_red = self.subject.reduce(env)
+    position_red = self.position.reduce(env)
+    match subject_red:
+      case Array(loc2, _, elements):
+        if isNat(position_red):
+          index = natToInt(position_red)
+          if 0 <= index and index < len(elements):
+            return elements[index].reduce(env)
+          # Don't signal an error for out-of-bounds! -Jeremy
+    return ArrayGet(self.location, self.typeof, subject_red, position_red)
+    
+  def substitute(self, sub):
+    return ArrayGet(self.location, self.typeof,
+                    self.subject.substitute(sub),
+                    self.position.substitute(sub))
+
+  def uniquify(self, env):
+    self.subject.uniquify(env)
+    self.position.uniquify(env)
+      
 @dataclass
 class TLet(Term):
   var: str
@@ -1320,7 +1494,9 @@ class IfThen(Formula):
   def __str__(self):
     match self.conclusion:
       case Bool(loc, tyof, False):
-        return 'not (' + str(self.premise) + ')'
+        return str(Call(self.location, self.typeof,
+                        Var(self.location, None, 'not'),
+                        [self.premise]))
       case _:
         return '(if ' + str(self.premise) \
           + ' then ' + str(self.conclusion) + ')'
@@ -2217,11 +2393,15 @@ class FunCase(AST):
   def uniquify(self, env):
     self.pattern.uniquify(env)
     body_env = copy_dict(env)
-    
-    new_pat_params = [generate_name(x) for x in self.pattern.parameters]
-    for (old,new) in zip(self.pattern.parameters, new_pat_params):
-      body_env[old] = [new]
-    self.pattern.parameters = new_pat_params
+
+    match self.pattern:
+      case PatternCons(loc, cons, parameters):
+        new_pat_params = [generate_name(x) for x in parameters]
+        for (old,new) in zip(parameters, new_pat_params):
+          body_env[old] = [new]
+        self.pattern.parameters = new_pat_params
+      case PatternBool(loc, b):
+        pass
 
     new_params = [generate_name(x) for x in self.parameters]
     for (old,new) in zip(self.parameters, new_params):
@@ -2380,6 +2560,10 @@ class Import(Statement):
   def uniquify(self, env):
     if get_verbose():
       print('uniquify import ' + self.name)
+    old_verbose = get_verbose()
+    if get_verbose() == VerboseLevel.CURR_ONLY:
+      set_verbose(VerboseLevel.NONE)
+
     global uniquified_modules
     if self.name in uniquified_modules.keys():
       self.ast = uniquified_modules[self.name]
@@ -2403,6 +2587,7 @@ class Import(Statement):
       stmt.collect_exports(env)
     if get_verbose():
       print('\tuniquify finished import ' + self.name)
+    set_verbose(old_verbose)
 
   def collect_exports(self, export_env):
     pass
@@ -2411,19 +2596,19 @@ class Import(Statement):
     pass
   
 def mkEqual(loc, arg1, arg2):
-  ret = Call(loc, None, Var(loc, None, '=', []), [arg1, arg2], True)
+  ret = Call(loc, None, Var(loc, None, '=', []), [arg1, arg2])
   return ret
 
 def split_equation(loc, equation):
   match equation:
-    case Call(loc1, tyof, Var(loc2, tyof2, '=', rs2), [L, R], _):
+    case Call(loc1, tyof, Var(loc2, tyof2, '=', rs2), [L, R]):
       return (L, R)
     case _:
       error(loc, 'expected an equality, not ' + str(equation))
 
 def is_equation(formula):
   match formula:
-    case Call(loc1, tyof, Var(loc2, tyof2, '=', rs2), [L, R], _):
+    case Call(loc1, tyof, Var(loc2, tyof2, '=', rs2), [L, R]):
       return True
     case _:
       return False
@@ -2432,7 +2617,7 @@ def mkZero(loc):
   return Var(loc, None, 'zero', [])
 
 def mkSuc(loc, arg):
-  return Call(loc, None, Var(loc, None, 'suc', []), [arg], False)
+  return Call(loc, None, Var(loc, None, 'suc', []), [arg])
 
 def intToNat(loc, n):
   if n == 0:
@@ -2444,7 +2629,7 @@ def isNat(t):
   match t:
     case Var(loc, tyof, name, rs) if base_name(name) == 'zero':
       return True
-    case Call(loc, tyof1, Var(loc2, tyof2, name, rs), [arg], infix) \
+    case Call(loc, tyof1, Var(loc2, tyof2, name, rs), [arg]) \
       if base_name(name) == 'suc':
       return isNat(arg)
     case _:
@@ -2454,15 +2639,15 @@ def natToInt(t):
   match t:
     case Var(loc, tyof, name, rs) if base_name(name) == 'zero':
       return 0
-    case Call(loc, tyof1, Var(loc2, tyof2, name, rs), [arg], infix) \
+    case Call(loc, tyof1, Var(loc2, tyof2, name, rs), [arg]) \
       if base_name(name) == 'suc':
       return 1 + natToInt(arg)
 
 def mkPos(loc, arg):
-  return Call(loc, None, Var(loc, None, 'pos', []), [arg], False)
+  return Call(loc, None, Var(loc, None, 'pos', []), [arg])
 
 def mkNeg(loc, arg):
-  return Call(loc, None, Var(loc, None, 'negsuc', []), [arg], False)
+  return Call(loc, None, Var(loc, None, 'negsuc', []), [arg])
 
 def intToDeduceInt(loc, n, sign):
   if sign == 'PLUS':
@@ -2472,9 +2657,9 @@ def intToDeduceInt(loc, n, sign):
 
 def isDeduceInt(t):
   match t:
-    case Call(loc, tyof1, Var(loc2, tyof2, name), [arg], infix) if base_name(name) == 'pos':
+    case Call(loc, tyof1, Var(loc2, tyof2, name), [arg]) if base_name(name) == 'pos':
       return isNat(arg)
-    case Call(loc, tyof1, Var(loc2, tyof2, name), [arg], infix) if base_name(name) == 'negsuc':
+    case Call(loc, tyof1, Var(loc2, tyof2, name), [arg]) if base_name(name) == 'negsuc':
       return isNat(arg)
     case _:
       return False
@@ -2482,9 +2667,9 @@ def isDeduceInt(t):
 
 def deduceIntToInt(t):
   match t:
-    case Call(loc, tyof1, Var(loc2, tyof2, name), [arg], infix) if base_name(name) == 'pos':
+    case Call(loc, tyof1, Var(loc2, tyof2, name), [arg]) if base_name(name) == 'pos':
       return '+' + str(natToInt(arg))
-    case Call(loc, tyof1, Var(loc2, tyof2, name), [arg], infix) if base_name(name) == 'negsuc':
+    case Call(loc, tyof1, Var(loc2, tyof2, name), [arg]) if base_name(name) == 'negsuc':
       return '-' + str(1 + natToInt(arg))
 
 def is_constructor(constr_name, env):
@@ -2499,24 +2684,41 @@ def is_constructor(constr_name, env):
           continue
   return False
 
+def is_constr_term(term, env):
+  match term:
+    case Var(loc, ty, n, rs):
+      return is_constructor(n, env)
+    case TermInst(loc, ty, body):
+      return is_constr_term(body, env)
+    case _:
+      return False
+
+def constr_name(term):
+  match term:
+    case Var(loc, ty, n, rs):
+      return n
+    case TermInst(loc, ty, body):
+      return constr_name(body)
+    case _:
+      raise Exception('constr_name unhandled ' + str(term))
+    
 def constructor_conflict(term1, term2, env):
   match (term1, term2):
-    case (Call(loc1, tyof1, Var(_, tyof2, n1, rs1), rands1),
-          Call(loc2, tyof3, Var(_, tyof4, n2, rs2), rands2)):
-      if is_constructor(n1, env) and is_constructor(n2, env):
-        if n1 != n2:
-          return True
-        else:
-          return any([constructor_conflict(rand1, rand2, env) \
-                      for (rand1, rand2) in zip(rands1, rands2)])
-    case (Call(loc1, tyof1, Var(_, tyof2, n1, rs1), rands1), Var(_, tyof3, n2, rs2)):
-      if is_constructor(n1, env) and is_constructor(n2, env) and n1 != n2:
+    case (Call(loc1, tyof1, rator1, rands1),
+          Call(loc2, tyof3, rator2, rands2)) if is_constr_term(rator1, env) and is_constr_term(rator2, env):
+     if constr_name(rator1) != constr_name(rator2):
+       return True
+     else:
+       return any([constructor_conflict(rand1, rand2, env) \
+                   for (rand1, rand2) in zip(rands1, rands2)])
+    case (Call(loc1, tyof1, rator1, rands1), term2) if is_constr_term(rator1, env) and is_constr_term(term2, env):
+      if constr_name(rator1) != constr_name(term2):
         return True
-    case (Var(_, tyof1, n1, rs1), Var(_, tyof2, n2, rs2)):
-      if is_constructor(n1, env) and is_constructor(n2, env) and n1 != n2:
+    case (term1, term2) if is_constr_term(term1, env) and is_constr_term(term2, env):
+      if constr_name(term1) != constr_name(term2):
         return True
-    case (Var(_, tyof1, n1, rs1), Call(loc2, tyof2, Var(_, tyof3, n2, rs2), rands2)):
-      if is_constructor(n1, env) and is_constructor(n2, env) and n1 != n2:
+    case (term1, Call(loc2, tyof2, rator2, rands2)) if is_constr_term(term1, env) and is_constr_term(rator2, env):
+      if constr_name(term1) != constr_name(rator2):
         return True
     case (Bool(_, tyof1, True), Bool(_, tyof2, False)):
       return True
@@ -2526,29 +2728,40 @@ def constructor_conflict(term1, term2, env):
 
 def isNodeList(t):
   match t:
-    case TermInst(loc2, tyof2, Var(loc3, tyof3, name, rs1), tyargs, True) \
+    case TermInst(loc2, tyof2, Var(loc3, tyof3, name, rs1), tyargs, inferred) \
       if base_name(name) == 'empty':
         return True
-    case Call(loc, tyof1, TermInst(loc2, tyof2, Var(loc3, tyof3, name, rs3), tyargs, True),
-              [arg, ls], infix) if base_name(name) == 'node':
+    case Call(loc, tyof1, TermInst(loc2, tyof2, Var(loc3, tyof3, name, rs3), tyargs, inferred),
+              [arg, ls]) if base_name(name) == 'node':
         return isNodeList(ls)
     case _:
       return False
     
 def nodeListToList(t):
   match t:
-    case TermInst(loc2, tyof2, Var(loc3, tyof3, name, rs), tyargs, True) \
+    case TermInst(loc2, tyof2, Var(loc3, tyof3, name, rs), tyargs, inferred) \
       if base_name(name) == 'empty':
-      return ''
-    case Call(loc, tyof1, TermInst(loc2, tyof2, Var(loc3, tyof3, name, rs), tyargs, True),
-              [arg, ls], infix) if base_name(name) == 'node':
-      return str(arg) + ', ' + nodeListToList(ls)
+        return []
+    case Call(loc, tyof1, TermInst(loc2, tyof2, Var(loc3, tyof3, name, rs),
+                                   tyargs, inferred),
+              [arg, ls]) if base_name(name) == 'node':
+      return [arg] + nodeListToList(ls)
+    
+def nodeListToString(t):
+  match t:
+    case TermInst(loc2, tyof2, Var(loc3, tyof3, name, rs), tyargs, inferred) \
+      if base_name(name) == 'empty':
+        return ''
+    case Call(loc, tyof1, TermInst(loc2, tyof2, Var(loc3, tyof3, name, rs),
+                                   tyargs, inferred),
+              [arg, ls]) if base_name(name) == 'node':
+      return str(arg) + ', ' + nodeListToString(ls)
 
 def mkEmpty(loc):
   return Var(loc, None, 'empty', [])
 
 def mkNode(loc, arg, ls):
-  return Call(loc, None, Var(loc, None, 'node', []), [arg, ls], False)
+  return Call(loc, None, Var(loc, None, 'node', []), [arg, ls])
 
 def listToNodeList(loc, lst):
   if len(lst) == 0:
@@ -2559,7 +2772,7 @@ def listToNodeList(loc, lst):
 def isEmptySet(t):
   match t:
     case Call(loc2, tyof2, TermInst(loc1, tyof1, Var(loc5, tyof5, name, rs), tyargs, implicit),
-              [Lambda(loc3, tyof3, vars, Bool(loc4, tyof4, False))], infix) \
+              [Lambda(loc3, tyof3, vars, Bool(loc4, tyof4, False))]) \
               if base_name(name) == 'char_fun':
       return True
     case _:
@@ -2580,6 +2793,7 @@ class TypeBinding(Binding):
 class TermBinding(Binding):
   typ : Type
   defn : Term = None
+  local : bool = False
   
   def __str__(self):
     return str(self.typ) + (' = ' + str(self.defn) if self.defn else '')
@@ -2609,7 +2823,7 @@ class Env:
   def proofs_str(self):
     return ',\n'.join(['\t' + base_name(k) + ': ' + str(v) \
                        for (k,v) in reversed(self.dict.items()) \
-                       if isinstance(v,ProofBinding) and (v.local or get_verbose())])
+                       if isinstance(v,ProofBinding) and (v.local or get_verbose() == VerboseLevel.FULL)])
   
   def declare_type(self, loc, name):
     new_env = Env(self.dict)
@@ -2822,7 +3036,7 @@ def count_marks(formula):
       return count_marks(frm2)
     case Some(loc2, tyof, vars, frm2):
       return count_marks(frm2)
-    case Call(loc2, tyof, rator, args, infix):
+    case Call(loc2, tyof, rator, args):
       return count_marks(rator) + sum([count_marks(arg) for arg in args])
     case Switch(loc2, tyof, subject, cases):
       return count_marks(subject) + sum([count_marks(c) for c in cases])
@@ -2842,8 +3056,10 @@ def count_marks(formula):
       return count_marks(rhs) + count_marks(body)
     case Hole(loc2, tyof):
       return 0
+    case ArrayGet(loc, tyof, arr, ind):
+      return count_marks(arr) + count_marks(ind)
     case _:
-      error(loc, 'in count_marks function, unhandled ' + str(formula))
+      error(formula.location, 'in count_marks function, unhandled ' + str(formula))
 
 def find_mark(formula):
   match formula:
@@ -2868,7 +3084,7 @@ def find_mark(formula):
       find_mark(frm2)
     case Some(loc2, tyof, vars, frm2):
       find_mark(frm2)
-    case Call(loc2, tyof, rator, args, infix):
+    case Call(loc2, tyof, rator, args):
       find_mark(rator)
       for arg in args:
           find_mark(arg)
@@ -2895,6 +3111,9 @@ def find_mark(formula):
       find_mark(body)
     case Hole(loc2, tyof):
       pass
+    case ArrayGet(loc2, tyof, arr, ind):
+      find_mark(arr)
+      find_mark(ind)
     case _:
       error(loc, 'in find_mark function, unhandled ' + str(formula))
 
@@ -2919,9 +3138,9 @@ def replace_mark(formula, replacement):
       return All(loc2, tyof, var, pos, replace_mark(frm2, replacement))
     case Some(loc2, tyof, vars, frm2):
       return Some(loc2, tyof, vars, replace_mark(frm2, replacement))
-    case Call(loc2, tyof, rator, args, infix):
+    case Call(loc2, tyof, rator, args):
       return Call(loc2, tyof, replace_mark(rator, replacement),
-                  [replace_mark(arg, replacement) for arg in args], infix)
+                  [replace_mark(arg, replacement) for arg in args])
     case Switch(loc2, tyof, subject, cases):
       return Switch(loc2, tyof, replace_mark(subject, replacement),
                     [replace_mark(c, replacement) for c in cases])
@@ -2944,6 +3163,8 @@ def replace_mark(formula, replacement):
                   replace_mark(body, replacement))
     case Hole(loc2, tyof):
       return formula
+    case ArrayGet(loc2, tyof, arr, ind):
+      return ArrayGet(loc2, tyof, replace_mark(arr, replacement), replace_mark(ind, replacement))
     case _:
       error(loc, 'in replace_mark function, unhandled ' + str(formula))
 
