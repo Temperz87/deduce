@@ -17,7 +17,7 @@ class ProductionRule:
     expected: list # expected list of rules
 
     def applicable(self, chart : list) -> bool:
-        return False # mfw no abstract classes
+        return False 
 
     def __str__(self):
         return self.name + ': ' + str(self.meta)
@@ -29,7 +29,7 @@ class LiteralRule(ProductionRule):
     literal: str
 
     def applicable(self, chart : list) -> bool:
-        return chart[0] == self.literal 
+        return chart[0] == self.literal
 
     def __str__(self):
         return self.literal + ': ' + str(self.meta)
@@ -45,8 +45,21 @@ class TypeRule(ProductionRule):
         return False
     
     def __str__(self):
-        return self.name + "[" + [str(x) for x in self.rules]
+        return self.name + '[' + [str(x) for x in self.rules] + ']'
+    
+@dataclass
+class IdentRule(ProductionRule):
+    identifier: str
 
+    def applicable(self, chart : list) -> bool:
+        return isinstance(chart[0], Token) and chart[0].type == 'IDENT'
+
+
+
+# I don't think that this is necasary as theoritically the data structure should maintain this information
+# The "i" and "j" extents come from the book, and should say from when to where the thingy is parsed
+# However, if we have a "list of lists" at every part in the data structure it should be fine
+# Also, all rules store their "merge step" as of right now
 @dataclass
 class Item:
     p: TypeRule # partial parse tree
