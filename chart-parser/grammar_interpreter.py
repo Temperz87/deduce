@@ -14,6 +14,7 @@ class GrammarRule:
 def new_grammar_rule(token_list, position) -> GrammarRule:
     rule_name = token_list[position]
     rhs = []
+    return None
 
 
 
@@ -25,9 +26,9 @@ def interpret_grammar_rules(tokens):
         token = tokens[i]
         print(repr(token))
         next = tokens[i + 1]
-        if token.type == 'IDENT' and next == ':':
-            print("Found grammar rule:", token)
-            rules.append(new_grammar_rule(token, i))
+        if token.type == 'RULE' and next == ':':
+            # print("Found grammar rule:", token)
+            rules.append(new_grammar_rule(tokens, i))
     exit(0)
 
 
