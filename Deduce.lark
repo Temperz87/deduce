@@ -7,7 +7,7 @@ IDENT: (/_/|UPPER|LOWER) (/_/|UPPER|LOWER|DIGIT|/[₀₁₂₃₄₅₆₇₈₉
 NEWLINE: (/\r/? /\n/)+
 WS: /[ \t\f\r\n]/+
 LINECOMMENT: "//" /[^\n]*/ 
-COMMENT: /\/\*([^\*]|\*+[^\/])*\*+\//
+COMMENT: /\/\*(\*(?!\/)|[^*])*\*\//
 
 ?term:  term_iff
 
@@ -89,8 +89,8 @@ ident: IDENT              -> ident
     | "array" "(" term ")"                         -> make_array
     | term_hi "(" term_list ")"                    -> call
     | term_hi "[" term "]"                         -> array_get
-    | "λ" var_list "{" term "}"                    -> lambda
-    | "fun" var_list "{" term "}"                  -> lambda
+    | "λ" type_params_opt var_list "{" term "}"    -> lambda
+    | "fun" type_params_opt var_list "{" term "}"  -> lambda
     | "generic" ident_list "{" term "}"            -> generic
     | "switch" term "{" switch_list "}"            -> switch
     | "all" type_annot_list "." term               -> all_formula
@@ -295,7 +295,7 @@ ident: IDENT              -> ident
 ?statement_list: statement                               -> single
     | statement statement_list                           -> push
 
-program: statement_list
+program: statement_list |
 
 %ignore COMMENT
 %ignore LINECOMMENT
