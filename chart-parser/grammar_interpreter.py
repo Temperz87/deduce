@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from lark import Lark, Token, logger, exceptions, tree
 
+
+@dataclass
 class GrammarRule:
     lhs: str
     rhs: list[str]
@@ -11,24 +13,33 @@ class GrammarRule:
     def __str__(self):
         return self.lhs + " ::= " + "\n\t| ".join(self.rhs)
 
+@dataclass
+class Item:
+    thing: GrammarRule
+    start: int
+    end: int
+
 def new_grammar_rule(token_list, position) -> GrammarRule:
     rule_name = token_list[position]
-    rhs = []
-    return None
+    print("Found rule:", rule_name)
+    return Item(GrammarRule, position, position + 2)
 
-
-
+def join(list, items):
+    for item in items:
+        items[item.start].append(item)
 
 def interpret_grammar_rules(tokens):
     rules = []
-    tokens = [token for token in tokens]
+    tokens = [[token] for token in tokens]
+    new = []
     for i in range(len(tokens) - 1):
         token = tokens[i]
-        print(repr(token))
+        # print(repr(token))
         next = tokens[i + 1]
         if token.type == 'RULE' and next == ':':
             # print("Found grammar rule:", token)
-            rules.append(new_grammar_rule(tokens, i))
+            new.append(new_grammar_rule(tokens, i))
+    
     exit(0)
 
 
@@ -43,6 +54,8 @@ def load_lark_grammar(lark_parser):
 if __name__ == '__main__':
     print("Running grammar interpreter in like debug mode idk man")
     # Tokenize
+    rule = GrammarRule("GrammarRule", ["RULE", ":"])
+
     with open("./lark.lark", encoding='utf-8') as lark_file:
         lark_parser = Lark(lark_file.read(),
                      start='start', parser='lalr',
