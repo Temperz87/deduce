@@ -18,7 +18,7 @@ def handle_sigint(signal, stack_frame):
     print('SIGINT caught, exiting...')
     exit(137)
 
-def deduce_file(filename, error_expected):
+def deduce_file(filename, error_expected, prelude : list[str]):
     if get_verbose():
         print("Deducing file:", filename)
     module_name = Path(filename).stem
@@ -48,7 +48,8 @@ def deduce_file(filename, error_expected):
                 print("abstract syntax tree:\n" \
                       +'\n'.join([str(s) for s in ast])+"\n\n")
                 print("starting uniquify:\n" + '\n'.join([str(d) for d in ast]))
-            uniquify_deduce(ast)
+
+            uniquify_deduce(ast, prelude)
             if get_verbose():
                 print("finished uniquify:\n" + '\n'.join([str(d) for d in ast]))
             add_uniquified_module(module_name, ast)
@@ -77,14 +78,20 @@ def deduce_file(filename, error_expected):
             # during development, reraise
             # raise e
 
-def deduce_directory(directory, recursive_directories):
+# Returns the list of modules deduce'd
+def deduce_directory(directory, recursive_directories, prelude : list[str]) -> list[str]:
+    deduced : list[str] = []
     for file in sorted(os.listdir(directory)):
         fpath = os.path.join(directory, file)
         if os.path.isfile(fpath):
             if file[-3:] == '.pf':
-                deduce_file(fpath, error_expected)
+                deduce_file(fpath, error_expected, prelude)
+                deduced.append(file[0:-3])
         elif recursive_directories and os.path.isdir(fpath):
-            deduce_directory(fpath, recursive_directories)
+            incomming_files = deduce_directory(fpath, recursive_directories, prelude)
+            deduced += incomming_files
+    
+    return deduced
 
 if __name__ == "__main__":
     signal(SIGINT, handle_sigint)
@@ -142,8 +149,7 @@ if __name__ == "__main__":
         else:
             deducables.append(argument)
     
-    if add_stdlib:
-        add_import_directory(stdlib_dir)
+
     
     if len(deducables) == 0:
         print("Couldn't find a file to deduce!")
@@ -158,12 +164,19 @@ if __name__ == "__main__":
     # higher.
 
     # Start deducing
+    if add_stdlib:
+        add_import_directory(stdlib_dir)
+        # For the prelude, we need to get all modules into "uniquified_modules"
+        # So we do that by first deducing all the library files
+        prelude = deduce_directory(stdlib_dir, False, [])
+    else:
+        prelude = []
 
     for deducable in deducables:
         if os.path.isfile(deducable):
-            deduce_file(deducable, error_expected)
+            deduce_file(deducable, error_expected, prelude)
         elif os.path.isdir(deducable):
-            deduce_directory(deducable, recursive_directories)
+            deduce_directory(deducable, recursive_directories, prelude)
         else:
             print(deducable, "was not found!")
             exit(1)

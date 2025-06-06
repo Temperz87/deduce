@@ -3372,7 +3372,7 @@ class Import(Declaration):
       self.ast = parse(src, trace=False)
       uniquified_modules[self.name] = self.ast
       set_filename(old_filename)
-      uniquify_deduce(self.ast)
+      uniquify_deduce(self.ast, [])
       
     for stmt in self.ast:
       stmt.collect_exports(env)
@@ -4225,12 +4225,19 @@ def extract_or(frm):
       case _:
        return [frm]
 
-def uniquify_deduce(ast):
+def uniquify_deduce(ast, prelude : list[str]):
   env = {}
   env['≠'] = ['≠']
   env['='] = ['=']
   # Using a space in the name to not collide with deduce identifiers
   env['no overload'] = {}
+
+
+  for module in prelude:
+      module_ast = uniquified_modules[module]
+      for stmt in module_ast:
+        stmt.collect_exports(env)
+
   for stmt in ast:
     stmt.uniquify(env)
 
