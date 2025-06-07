@@ -3042,10 +3042,27 @@ def check_proofs(stmt, env):
     case _:
       error(stmt.location, "check_proofs: unrecognized statement:\n" + str(stmt))
       
-def check_deduce(ast, module_name, modified):
+def check_deduce(ast, module_name, modified, prelude):
   env = Env()
-  ast2 = []
   imported_modules.clear()
+
+  for module in prelude:
+      module_ast = uniquified_modules[module]
+      mod_ast2 = []
+      for s in module_ast:
+        new_s, env = process_declaration(s, env, [], [False])
+        mod_ast2.append(new_s)
+
+      mod_ast3 = []
+      for s in mod_ast2:
+        new_s = type_check_stmt(s, env)
+        mod_ast3.append(new_s)
+
+      for s in mod_ast3:
+        env = collect_env(s, env)
+      imported_modules.add(module_name)
+
+  ast2 = []
   needs_checking = [modified]
   if get_verbose():
       print('--------- Processing Declarations ------------------------')
