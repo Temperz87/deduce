@@ -3042,10 +3042,7 @@ def check_proofs(stmt, env):
     case _:
       error(stmt.location, "check_proofs: unrecognized statement:\n" + str(stmt))
       
-def check_deduce(ast, module_name, modified, prelude):
-  env = Env()
-  imported_modules.clear()
-
+def add_prelude(env : Env, prelude : list[str]) -> Env:
   for module in prelude:
       module_ast = uniquified_modules[module]
       mod_ast2 = []
@@ -3060,7 +3057,14 @@ def check_deduce(ast, module_name, modified, prelude):
 
       for s in mod_ast3:
         env = collect_env(s, env)
-      imported_modules.add(module_name)
+      imported_modules.add(module)
+  return env
+    
+def check_deduce(ast, module_name, modified, prelude):
+  env = Env()
+  imported_modules.clear()
+
+  env = add_prelude(env, prelude)
 
   ast2 = []
   needs_checking = [modified]

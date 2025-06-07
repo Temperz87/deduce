@@ -4232,7 +4232,7 @@ def uniquify_deduce(ast, prelude : list[str]):
   # Using a space in the name to not collide with deduce identifiers
   env['no overload'] = {}
 
-
+  # Tossing the prelude into our environment
   for module in prelude:
       module_ast = uniquified_modules[module]
       for stmt in module_ast:
