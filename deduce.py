@@ -18,7 +18,7 @@ def handle_sigint(signal, stack_frame):
     print('SIGINT caught, exiting...')
     exit(137)
 
-def deduce_file(filename, error_expected, prelude : list[str]):
+def deduce_file(filename, error_expected, prelude : list[str], print_valid = True):
     if get_verbose():
         print("Deducing file:", filename)
     module_name = Path(filename).stem
@@ -55,14 +55,15 @@ def deduce_file(filename, error_expected, prelude : list[str]):
             add_uniquified_module(module_name, ast)
 
         needs_checking = is_modified(filename)
-        check_deduce(ast, module_name, needs_checking)
+        check_deduce(ast, module_name, needs_checking, prelude)
         if error_expected:
             print('an error was expected in', filename, "but it was not caught")
             exit(-1)
         else:
             if not suppress_theorems:
                 print_theorems(filename, ast)
-            print(filename + ' is valid')
+            if print_valid:
+                print(filename + ' is valid')
 
     except Exception as e:
         if error_expected:
@@ -79,16 +80,16 @@ def deduce_file(filename, error_expected, prelude : list[str]):
             # raise e
 
 # Returns the list of modules deduce'd
-def deduce_directory(directory, recursive_directories, prelude : list[str]) -> list[str]:
+def deduce_directory(directory, recursive_directories, prelude : list[str], print_valid = True) -> list[str]:
     deduced : list[str] = []
     for file in sorted(os.listdir(directory)):
         fpath = os.path.join(directory, file)
         if os.path.isfile(fpath):
             if file[-3:] == '.pf':
-                deduce_file(fpath, error_expected, prelude)
+                deduce_file(fpath, error_expected, prelude, print_valid)
                 deduced.append(file[0:-3])
         elif recursive_directories and os.path.isdir(fpath):
-            incomming_files = deduce_directory(fpath, recursive_directories, prelude)
+            incomming_files = deduce_directory(fpath, recursive_directories, prelude, print_valid)
             deduced += incomming_files
     
     return deduced
@@ -168,7 +169,7 @@ if __name__ == "__main__":
         add_import_directory(stdlib_dir)
         # For the prelude, we need to get all modules into "uniquified_modules"
         # So we do that by first deducing all the library files
-        prelude = deduce_directory(stdlib_dir, False, [])
+        prelude = deduce_directory(stdlib_dir, False, [], False)
     else:
         prelude = []
 
