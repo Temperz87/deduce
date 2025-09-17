@@ -97,6 +97,19 @@ def deduce_directory(directory, recursive_directories, prelude) -> None:
         elif recursive_directories and os.path.isdir(fpath):
             deduce_directory(fpath, recursive_directories, prelude)
     
+def check_in_prelude(deducable : str, stdlib_dir : str) -> bool:
+    deducable_path = Path(deducable)
+    stdlib_path = Path(stdlib_dir)
+    if deducable_path.is_file():
+        return deducable_path.parent.absolute() == stdlib_path
+    elif deducable_path.is_dir():
+        return deducable_path.absolute() == stdlib_path
+    else:
+        # If the funciton reaches this point then the path does not exist
+        # However, there is handling for that in another place
+        # So return false
+        return False
+
 if __name__ == "__main__":
     signal(SIGINT, handle_sigint)
     # Check command line arguments
@@ -104,7 +117,7 @@ if __name__ == "__main__":
     if (sys.argv[0] == 'deduce.py'):
         sys.argv[0] = os.path.join(os.getcwd(), sys.argv[0])
 
-    stdlib_dir = os.path.join(os.path.dirname(sys.argv[0]), 'lib/')
+    stdlib_dir = os.path.join(os.path.dirname(sys.argv[0]), 'lib')
     add_stdlib = True
     deducables = []
     error_expected = False
@@ -181,10 +194,18 @@ if __name__ == "__main__":
     # Start deducing
 
     for deducable in deducables:
+        # If a file is in the prelude and we include the prelude
+        # Then we'll process the file twice, hence using an empty "prelude"
+        # For said file
+        in_prelude = check_in_prelude(deducable, stdlib_dir)
+        deducable_prelude = prelude
+        if in_prelude:
+            deducable_prelude = []
+        
         if os.path.isfile(deducable):
-            deduce_file(deducable, error_expected, prelude)
+            deduce_file(deducable, error_expected, deducable_prelude)
         elif os.path.isdir(deducable):
-            deduce_directory(deducable, recursive_directories, prelude)
+            deduce_directory(deducable, recursive_directories, deducable_prelude)
         else:
             print(deducable, "was not found!")
             exit(1)
